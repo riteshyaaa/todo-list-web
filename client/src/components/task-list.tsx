@@ -16,10 +16,23 @@ export function TaskList() {
     mutationFn: async (orderedIds: number[]) => {
       await apiRequest("POST", "/api/tasks/reorder", { orderedIds });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    onMutate: async (orderedIds: number[]) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/tasks"] });
+
+      const previousTasks = queryClient.getQueryData<Task[]>(["/api/tasks"]);
+      const tasksById = new Map(previousTasks?.map((task) => [task.id, task]));
+      const optimisticTasks = orderedIds
+        .map((id) => tasksById.get(id))
+        .filter((task): task is Task => task !== undefined);
+
+      queryClient.setQueryData(["/api/tasks"], optimisticTasks);
+      return { previousTasks };
     },
-    onError: () => {
+    onError: (_error, _orderedIds, context) => {
+      if (context?.previousTasks) {
+        queryClient.setQueryData(["/api/tasks"], context.previousTasks);
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       toast({
         title: "Error",
         description: "Failed to reorder tasks",
@@ -28,10 +41,14 @@ export function TaskList() {
     },
   });
 
-  const handleDragEnd = (taskId: number, newIndex: number) => {
+  const handleDragEnd = (taskId: number, targetIndex: number) => {
     if (!tasks) return;
     
     const oldIndex = tasks.findIndex((t) => t.id === taskId);
+    if (oldIndex === -1) return;
+
+    const newIndex =
+      targetIndex > oldIndex ? targetIndex - 1 : targetIndex;
     if (oldIndex === newIndex) return;
 
     const newTasks = [...tasks];
@@ -65,7 +82,7 @@ export function TaskList() {
         <TaskItem
           key={task.id}
           task={task}
-          onDragEnd={(newIndex) => handleDragEnd(task.id, newIndex)}
+          onDragEnd={handleDragEnd}
           index={index}
           total={tasks.length}
         />

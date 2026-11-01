@@ -13,7 +13,7 @@ interface TaskItemProps {
   task: Task;
   index: number;
   total: number;
-  onDragEnd: (newIndex: number) => void;
+  onDragEnd: (taskId: number, newIndex: number) => void;
 }
 
 export function TaskItem({ task, index, total, onDragEnd }: TaskItemProps) {
@@ -21,6 +21,9 @@ export function TaskItem({ task, index, total, onDragEnd }: TaskItemProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(task.title);
   const [isDragging, setIsDragging] = useState(false);
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(
+    null,
+  );
 
   const updateMutation = useMutation({
     mutationFn: async (data: { title?: string; completed?: boolean }) => {
@@ -64,64 +67,71 @@ export function TaskItem({ task, index, total, onDragEnd }: TaskItemProps) {
   });
 
   const handleDragStart = (e: React.DragEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button, input, textarea, [role='checkbox']")) {
+      e.preventDefault();
+      return;
+    }
+
     setIsDragging(true);
-    e.dataTransfer.setData("text/plain", index.toString());
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", task.id.toString());
   };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    const target = e.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
+    e.dataTransfer.dropEffect = "move";
+    const rect = e.currentTarget.getBoundingClientRect();
     const midpoint = (rect.bottom + rect.top) / 2;
-    
-    if (e.clientY < midpoint) {
-      target.style.borderTop = "2px solid var(--primary)";
-      target.style.borderBottom = "";
-    } else {
-      target.style.borderTop = "";
-      target.style.borderBottom = "2px solid var(--primary)";
-    }
+
+    setDropPosition(e.clientY < midpoint ? "before" : "after");
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
-    const target = e.currentTarget as HTMLElement;
-    target.style.borderTop = "";
-    target.style.borderBottom = "";
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setDropPosition(null);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    const target = e.currentTarget as HTMLElement;
-    target.style.borderTop = "";
-    target.style.borderBottom = "";
-    
-    const dragIndex = parseInt(e.dataTransfer.getData("text/plain"));
-    const rect = target.getBoundingClientRect();
+    setDropPosition(null);
+
+    const dragId = Number(e.dataTransfer.getData("text/plain"));
+    if (!Number.isInteger(dragId)) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
     const midpoint = (rect.bottom + rect.top) / 2;
     const dropIndex = e.clientY < midpoint ? index : index + 1;
-    
-    if (dragIndex !== dropIndex && dragIndex !== dropIndex - 1) {
-      onDragEnd(dropIndex > dragIndex ? dropIndex - 1 : dropIndex);
-    }
-    
-    setIsDragging(false);
+
+    onDragEnd(dragId, dropIndex);
   };
 
   return (
     <Card
-      className={`p-3 flex items-center gap-2 transition-colors ${
+      className={`relative p-3 flex items-center gap-2 transition-[opacity,box-shadow,transform] duration-150 ${
         isDragging ? "opacity-50" : ""
+      } ${
+        dropPosition === "before"
+          ? "before:absolute before:-top-1 before:left-2 before:right-2 before:h-0.5 before:rounded-full before:bg-primary"
+          : ""
+      } ${
+        dropPosition === "after"
+          ? "after:absolute after:-bottom-1 after:left-2 after:right-2 after:h-0.5 after:rounded-full after:bg-primary"
+          : ""
       }`}
       draggable
       onDragStart={handleDragStart}
+      onDragEnd={() => {
+        setIsDragging(false);
+        setDropPosition(null);
+      }}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      onDragEnd={() => setIsDragging(false)}
     >
       <div
-        className="cursor-move touch-none"
-        onMouseDown={(e) => e.preventDefault()}
+        className="cursor-grab touch-none active:cursor-grabbing"
       >
         <GripVertical className="h-5 w-5 text-muted-foreground" />
       </div>
